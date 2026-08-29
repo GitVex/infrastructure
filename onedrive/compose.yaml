@@ -1,0 +1,18 @@
+services:
+  onedrive:
+    image: driveone/onedrive:latest
+    restart: unless-stopped
+    environment:
+      ONEDRIVE_UID: ${SYNC_UID}
+      ONEDRIVE_GID: ${SYNC_GID}
+      ONEDRIVE_DOWNLOADONLY: 1
+      ONEDRIVE_CLEANUPLOCAL: 1
+      ONEDRIVE_DISPLAY_CONFIG: 1
+    volumes:
+      - ${DATA_ROOT}/wiki/onedrive-conf:/onedrive/conf
+      - ${DATA_ROOT}/wiki/staging:/onedrive/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
