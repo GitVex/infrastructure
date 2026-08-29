@@ -9,6 +9,7 @@ services:
       ONEDRIVE_CLEANUPLOCAL: 1
       ONEDRIVE_DISPLAY_CONFIG: 1
       ONEDRIVE_SINGLE_DIRECTORY: '"Obsidian/Trailblazers"'
+      ONEDRIVE_AUTHFILES: '"/onedrive/conf/authUrl:/onedrive/conf/authResponse"'
     volumes:
       - /srv/wiki/onedrive-conf:/onedrive/conf
       - /srv/wiki/staging:/onedrive/data
