@@ -11,8 +11,8 @@ services:
       ONEDRIVE_SINGLE_DIRECTORY: '"Obsidian/Trailblazers"'
       ONEDRIVE_AUTHFILES: /onedrive/conf/authUrl:/onedrive/conf/authResponse
     volumes:
-      - /srv/wiki/onedrive-conf:/onedrive/conf
-      - /srv/wiki/staging:/onedrive/data
+      - /srv/tb_wiki/onedrive-conf:/onedrive/conf
+      - /srv/tb_wiki/staging:/onedrive/data
     logging:
       driver: json-file
       options:
