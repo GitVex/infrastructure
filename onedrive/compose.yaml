@@ -8,6 +8,7 @@ services:
       ONEDRIVE_DOWNLOADONLY: 1
       ONEDRIVE_CLEANUPLOCAL: 1
       ONEDRIVE_DISPLAY_CONFIG: 1
+      ONEDRIVE_SINGLE_DIRECTORY: '"Obsidian/Trailblazers"'
     volumes:
       - /srv/wiki/onedrive-conf:/onedrive/conf
       - /srv/wiki/staging:/onedrive/data
