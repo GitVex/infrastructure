@@ -9,8 +9,8 @@ services:
       ONEDRIVE_CLEANUPLOCAL: 1
       ONEDRIVE_DISPLAY_CONFIG: 1
     volumes:
-      - ${DATA_ROOT}/wiki/onedrive-conf:/onedrive/conf
-      - ${DATA_ROOT}/wiki/staging:/onedrive/data
+      - /srv/wiki/onedrive-conf:/onedrive/conf
+      - /srv/wiki/staging:/onedrive/data
     logging:
       driver: json-file
       options:
