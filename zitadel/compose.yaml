@@ -29,7 +29,7 @@ services:
     user: "0"
     command: start-from-init
     environment:
-      ZITADEL_MASTERKEY: ${SERVICE_BASE64_32_MASTERKEY}
+      ZITADEL_MASTERKEY: ${ZITADEL_MASTERKEY}
       ZITADEL_PORT: 8080
 
       # TLS is terminated by Coolify's Traefik, ZITADEL itself speaks cleartext.
