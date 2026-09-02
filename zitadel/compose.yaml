@@ -3,13 +3,13 @@
 # Deploy as: Coolify -> Project -> + New Resource -> Docker Compose
 # (or a Git-based "Docker Compose" application with base directory /zitadel).
 #
-# !! BEFORE DEPLOYING, replace every `auth.example.com` below with your domain. !!
+# !! BEFORE DEPLOYING, replace every `auth.bardicinspiration.cc` below with your domain. !!
 # It appears hardcoded in the Traefik labels on purpose: Coolify escapes `$` inside
 # labels (services.is_container_label_escape_enabled defaults to true), so `${VAR}`
-# would reach Traefik literally. Env values are NOT escaped, so `${ZITADEL_DOMAIN}`
+# would reach Traefik literally. Env values are NOT escaped, so `auth.bardicinspiration.cc`
 # is fine everywhere outside `labels:`. Set ZITADEL_DOMAIN to the same value in the
 # Coolify UI. (If you disable "Escape special characters in labels" on the resource,
-# you can use ${ZITADEL_DOMAIN} in the labels too and keep a single source of truth.)
+# you can use auth.bardicinspiration.cc in the labels too and keep a single source of truth.)
 #
 # Do NOT set a domain on these services in Coolify's UI -- Coolify would generate its
 # own Traefik routers, which cannot express h2c or the /ui/v2/login path split, and
@@ -33,7 +33,7 @@ services:
       ZITADEL_PORT: 8080
 
       # TLS is terminated by Coolify's Traefik, ZITADEL itself speaks cleartext.
-      ZITADEL_EXTERNALDOMAIN: ${ZITADEL_DOMAIN}
+      ZITADEL_EXTERNALDOMAIN: auth.bardicinspiration.cc
       ZITADEL_EXTERNALPORT: 443
       ZITADEL_EXTERNALSECURE: true
       ZITADEL_TLS_ENABLED: false
@@ -53,10 +53,10 @@ services:
 
       # Login V2 lives on the same host under /ui/v2/login.
       ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED: true
-      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_BASEURI: https://${ZITADEL_DOMAIN}/ui/v2/login/
-      ZITADEL_OIDC_DEFAULTLOGINURLV2: https://${ZITADEL_DOMAIN}/ui/v2/login/login?authRequest=
-      ZITADEL_OIDC_DEFAULTLOGOUTURLV2: https://${ZITADEL_DOMAIN}/ui/v2/login/logout?post_logout_redirect=
-      ZITADEL_SAML_DEFAULTLOGINURLV2: https://${ZITADEL_DOMAIN}/ui/v2/login/login?samlRequest=
+      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_BASEURI: https://auth.bardicinspiration.cc/ui/v2/login/
+      ZITADEL_OIDC_DEFAULTLOGINURLV2: https://auth.bardicinspiration.cc/ui/v2/login/login?authRequest=
+      ZITADEL_OIDC_DEFAULTLOGOUTURLV2: https://auth.bardicinspiration.cc/ui/v2/login/logout?post_logout_redirect=
+      ZITADEL_SAML_DEFAULTLOGINURLV2: https://auth.bardicinspiration.cc/ui/v2/login/login?samlRequest=
 
       ZITADEL_LOGSTORE_ACCESS_STDOUT_ENABLED: true
     volumes:
@@ -87,13 +87,13 @@ services:
       - traefik.http.middlewares.zitadel-https-redirect.redirectscheme.permanent=true
 
       # Catch-all: console, OIDC/SAML endpoints, gRPC APIs. Lower priority than login.
-      - traefik.http.routers.zitadel-api-http.rule=Host(`auth.example.com`)
+      - traefik.http.routers.zitadel-api-http.rule=Host(`auth.bardicinspiration.cc`)
       - traefik.http.routers.zitadel-api-http.entrypoints=http
       - traefik.http.routers.zitadel-api-http.middlewares=zitadel-https-redirect
       - traefik.http.routers.zitadel-api-http.service=zitadel-api
       - traefik.http.routers.zitadel-api-http.priority=100
 
-      - traefik.http.routers.zitadel-api.rule=Host(`auth.example.com`)
+      - traefik.http.routers.zitadel-api.rule=Host(`auth.bardicinspiration.cc`)
       - traefik.http.routers.zitadel-api.entrypoints=https
       - traefik.http.routers.zitadel-api.tls=true
       - traefik.http.routers.zitadel-api.tls.certresolver=letsencrypt
@@ -110,7 +110,7 @@ services:
       NEXT_PUBLIC_BASE_PATH: /ui/v2/login
       ZITADEL_SERVICE_USER_TOKEN_FILE: /zitadel/bootstrap/login-client.pat
       # Makes the login UI's API calls look like they came in through the proxy.
-      CUSTOM_REQUEST_HEADERS: Host:${ZITADEL_DOMAIN},X-Forwarded-Proto:https
+      CUSTOM_REQUEST_HEADERS: Host:auth.bardicinspiration.cc,X-Forwarded-Proto:https
     volumes:
       - zitadel-bootstrap:/zitadel/bootstrap:ro
     depends_on:
@@ -134,13 +134,13 @@ services:
       - traefik.http.middlewares.zitadel-https-redirect.redirectscheme.scheme=https
       - traefik.http.middlewares.zitadel-https-redirect.redirectscheme.permanent=true
 
-      - traefik.http.routers.zitadel-login-http.rule=Host(`auth.example.com`) && PathPrefix(`/ui/v2/login`)
+      - traefik.http.routers.zitadel-login-http.rule=Host(`auth.bardicinspiration.cc`) && PathPrefix(`/ui/v2/login`)
       - traefik.http.routers.zitadel-login-http.entrypoints=http
       - traefik.http.routers.zitadel-login-http.middlewares=zitadel-https-redirect
       - traefik.http.routers.zitadel-login-http.service=zitadel-login
       - traefik.http.routers.zitadel-login-http.priority=200
 
-      - traefik.http.routers.zitadel-login.rule=Host(`auth.example.com`) && PathPrefix(`/ui/v2/login`)
+      - traefik.http.routers.zitadel-login.rule=Host(`auth.bardicinspiration.cc`) && PathPrefix(`/ui/v2/login`)
       - traefik.http.routers.zitadel-login.entrypoints=https
       - traefik.http.routers.zitadel-login.tls=true
       - traefik.http.routers.zitadel-login.tls.certresolver=letsencrypt
