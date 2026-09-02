@@ -1,0 +1,173 @@
+# ZITADEL behind Coolify's Traefik.
+#
+# Deploy as: Coolify -> Project -> + New Resource -> Docker Compose
+# (or a Git-based "Docker Compose" application with base directory /zitadel).
+#
+# !! BEFORE DEPLOYING, replace every `auth.example.com` below with your domain. !!
+# It appears hardcoded in the Traefik labels on purpose: Coolify escapes `$` inside
+# labels (services.is_container_label_escape_enabled defaults to true), so `${VAR}`
+# would reach Traefik literally. Env values are NOT escaped, so `${ZITADEL_DOMAIN}`
+# is fine everywhere outside `labels:`. Set ZITADEL_DOMAIN to the same value in the
+# Coolify UI. (If you disable "Escape special characters in labels" on the resource,
+# you can use ${ZITADEL_DOMAIN} in the labels too and keep a single source of truth.)
+#
+# Do NOT set a domain on these services in Coolify's UI -- Coolify would generate its
+# own Traefik routers, which cannot express h2c or the /ui/v2/login path split, and
+# they would collide with the routers defined here. Coolify only generates routers for
+# services that have an FQDN, so leaving those fields empty keeps these labels
+# authoritative. Coolify still attaches every container to its proxy network and
+# connects coolify-proxy to it, so no `networks:` block is needed.
+#
+# ZITADEL serves gRPC/Connect-RPC on the same port as the console, so Traefik must
+# reach it over h2c (cleartext HTTP/2) while terminating TLS itself:
+#   https://zitadel.com/docs/self-hosting/manage/reverseproxy/traefik
+
+services:
+  zitadel-api:
+    image: ghcr.io/zitadel/zitadel:${ZITADEL_VERSION:-v4.16.0}
+    restart: unless-stopped
+    user: "0"
+    command: start-from-init
+    environment:
+      ZITADEL_MASTERKEY: ${SERVICE_BASE64_32_MASTERKEY}
+      ZITADEL_PORT: 8080
+
+      # TLS is terminated by Coolify's Traefik, ZITADEL itself speaks cleartext.
+      ZITADEL_EXTERNALDOMAIN: ${ZITADEL_DOMAIN}
+      ZITADEL_EXTERNALPORT: 443
+      ZITADEL_EXTERNALSECURE: true
+      ZITADEL_TLS_ENABLED: false
+
+      ZITADEL_DATABASE_POSTGRES_DSN: postgresql://zitadel:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/zitadel?sslmode=disable
+
+      # First instance admin. Only used on the very first startup.
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: ${ZITADEL_ADMIN_USERNAME:-zitadel-admin}
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: ${ZITADEL_ADMIN_PASSWORD}
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: true
+
+      # Bootstraps the machine user whose PAT the login UI authenticates with.
+      ZITADEL_FIRSTINSTANCE_LOGINCLIENTPATPATH: /zitadel/bootstrap/login-client.pat
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_USERNAME: login-client
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_NAME: Automatically Initialized IAM_LOGIN_CLIENT
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_PAT_EXPIRATIONDATE: ${LOGIN_CLIENT_PAT_EXPIRATION:-2099-01-01T00:00:00Z}
+
+      # Login V2 lives on the same host under /ui/v2/login.
+      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED: true
+      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_BASEURI: https://${ZITADEL_DOMAIN}/ui/v2/login/
+      ZITADEL_OIDC_DEFAULTLOGINURLV2: https://${ZITADEL_DOMAIN}/ui/v2/login/login?authRequest=
+      ZITADEL_OIDC_DEFAULTLOGOUTURLV2: https://${ZITADEL_DOMAIN}/ui/v2/login/logout?post_logout_redirect=
+      ZITADEL_SAML_DEFAULTLOGINURLV2: https://${ZITADEL_DOMAIN}/ui/v2/login/login?samlRequest=
+
+      ZITADEL_LOGSTORE_ACCESS_STDOUT_ENABLED: true
+    volumes:
+      - zitadel-bootstrap:/zitadel/bootstrap:rw
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/app/zitadel", "ready"]
+      interval: 10s
+      timeout: 30s
+      retries: 12
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - traefik.enable=true
+
+      # h2c is the whole point: cleartext HTTP/2 so gRPC and Connect-RPC survive
+      # the hop from Traefik to ZITADEL.
+      - traefik.http.services.zitadel-api.loadbalancer.server.port=8080
+      - traefik.http.services.zitadel-api.loadbalancer.server.scheme=h2c
+
+      - traefik.http.middlewares.zitadel-https-redirect.redirectscheme.scheme=https
+      - traefik.http.middlewares.zitadel-https-redirect.redirectscheme.permanent=true
+
+      # Catch-all: console, OIDC/SAML endpoints, gRPC APIs. Lower priority than login.
+      - traefik.http.routers.zitadel-api-http.rule=Host(`auth.example.com`)
+      - traefik.http.routers.zitadel-api-http.entrypoints=http
+      - traefik.http.routers.zitadel-api-http.middlewares=zitadel-https-redirect
+      - traefik.http.routers.zitadel-api-http.service=zitadel-api
+      - traefik.http.routers.zitadel-api-http.priority=100
+
+      - traefik.http.routers.zitadel-api.rule=Host(`auth.example.com`)
+      - traefik.http.routers.zitadel-api.entrypoints=https
+      - traefik.http.routers.zitadel-api.tls=true
+      - traefik.http.routers.zitadel-api.tls.certresolver=letsencrypt
+      - traefik.http.routers.zitadel-api.service=zitadel-api
+      - traefik.http.routers.zitadel-api.priority=100
+
+  zitadel-login:
+    image: ghcr.io/zitadel/zitadel-login:${ZITADEL_VERSION:-v4.16.0}
+    restart: unless-stopped
+    user: "0"
+    environment:
+      # In-cluster call, stays plain HTTP.
+      ZITADEL_API_URL: http://zitadel-api:8080
+      NEXT_PUBLIC_BASE_PATH: /ui/v2/login
+      ZITADEL_SERVICE_USER_TOKEN_FILE: /zitadel/bootstrap/login-client.pat
+      # Makes the login UI's API calls look like they came in through the proxy.
+      CUSTOM_REQUEST_HEADERS: Host:${ZITADEL_DOMAIN},X-Forwarded-Proto:https
+    volumes:
+      - zitadel-bootstrap:/zitadel/bootstrap:ro
+    depends_on:
+      zitadel-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/bin/sh", "-c", "node /app/healthcheck.mjs http://localhost:3000/ui/v2/login/healthy"]
+      interval: 10s
+      timeout: 30s
+      retries: 12
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.zitadel-login.loadbalancer.server.port=3000
+
+      - traefik.http.middlewares.zitadel-https-redirect.redirectscheme.scheme=https
+      - traefik.http.middlewares.zitadel-https-redirect.redirectscheme.permanent=true
+
+      - traefik.http.routers.zitadel-login-http.rule=Host(`auth.example.com`) && PathPrefix(`/ui/v2/login`)
+      - traefik.http.routers.zitadel-login-http.entrypoints=http
+      - traefik.http.routers.zitadel-login-http.middlewares=zitadel-https-redirect
+      - traefik.http.routers.zitadel-login-http.service=zitadel-login
+      - traefik.http.routers.zitadel-login-http.priority=200
+
+      - traefik.http.routers.zitadel-login.rule=Host(`auth.example.com`) && PathPrefix(`/ui/v2/login`)
+      - traefik.http.routers.zitadel-login.entrypoints=https
+      - traefik.http.routers.zitadel-login.tls=true
+      - traefik.http.routers.zitadel-login.tls.certresolver=letsencrypt
+      - traefik.http.routers.zitadel-login.service=zitadel-login
+      - traefik.http.routers.zitadel-login.priority=200
+
+  postgres:
+    image: postgres:17.10-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: zitadel
+      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}
+      POSTGRES_DB: zitadel
+    volumes:
+      - zitadel-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zitadel -d zitadel"]
+      interval: 10s
+      timeout: 30s
+      retries: 10
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  zitadel-postgres-data:
+  zitadel-bootstrap:
