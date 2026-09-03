@@ -27,8 +27,11 @@ services:
     image: ghcr.io/zitadel/zitadel:${ZITADEL_VERSION:-v4.16.0}
     restart: unless-stopped
     user: "0"
-    command: start-from-init
+    # --masterkeyFromEnv is required: ZITADEL_MASTERKEY is ignored unless exactly one
+    # of --masterkeyFile / --masterkey / --masterkeyFromEnv is given.
+    command: start-from-init --masterkeyFromEnv
     environment:
+      # Must be exactly 32 characters. Generate with: openssl rand -hex 16
       ZITADEL_MASTERKEY: ${ZITADEL_MASTERKEY}
       ZITADEL_PORT: 8080
 
