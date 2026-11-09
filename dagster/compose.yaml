@@ -51,6 +51,13 @@ services:
       # resolve the env: lookups of dagster.yaml locally.
       <<: *dagster-postgres-env
       # Pipeline secrets go here as Coolify variables, e.g. API_KEY: ${API_KEY:?}
+    # Same check as the image's HEALTHCHECK, restated so the whole stack is visible here.
+    healthcheck:
+      test: ["CMD", "dagster", "api", "grpc-health-check", "-p", "4000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     depends_on:
       postgres:
         condition: service_healthy
@@ -61,6 +68,13 @@ services:
     restart: unless-stopped
     environment:
       <<: *dagster-postgres-env
+    # The slim image has no curl/wget, so probe /server_info with Python.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3000/server_info', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     depends_on:
       postgres:
         condition: service_healthy
@@ -73,11 +87,18 @@ services:
     restart: unless-stopped
     environment:
       <<: *dagster-postgres-env
+    # Fails when the daemon has stopped writing heartbeats to Postgres.
+    healthcheck:
+      test: ["CMD", "dagster-daemon", "liveness-check"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
     depends_on:
       postgres:
         condition: service_healthy
       user_code:
-        condition: service_started
+        condition: service_healthy
 
   gatekeeper:
     image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.6
@@ -104,8 +125,11 @@ services:
       OAUTH2_PROXY_COOKIE_SECRET: ${SERVICE_PASSWORD_COOKIE}  # 32 random chars = AES-256 key
       OAUTH2_PROXY_COOKIE_SECURE: "true"
       OAUTH2_PROXY_COOKIE_EXPIRE: 24h
+    # No healthcheck: the image is distroless (no shell, curl or wget). Its /ping
+    # endpoint can be probed from outside instead.
     depends_on:
-      - webserver
+      webserver:
+        condition: service_healthy
 
 volumes:
   pgdata:
