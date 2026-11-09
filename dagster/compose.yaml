@@ -1,0 +1,110 @@
+# Dagster (webserver + daemon + Postgres + one gRPC code location) on Coolify.
+#
+# Deploy as: Coolify -> Project -> + New Resource -> Git-based application with the
+# "Docker Compose" build pack, base directory /dagster. All services share one Compose
+# resource, so they reach each other by service name (postgres, user_code).
+#
+# User code is NOT built here: the hockey-pipelines repo pushes
+# ghcr.io/gitvex/hockey-pipelines to GHCR via GitHub Actions. That image must start
+# `dagster code-server` on port 4000 and define a HEALTHCHECK (webserver waits on it).
+# If the GHCR package is private, add registry credentials in Coolify.
+# To ship new pipeline code: push the image, then redeploy this resource.
+#
+# Domain: set it on the `gatekeeper` service in Coolify's UI, never on `webserver`.
+# Dagster has no built-in login, so all traffic goes through oauth2-proxy, which logs
+# users in against ZITADEL (OIDC) and only then proxies to webserver:3000. Who may log
+# in is enforced in ZITADEL: the project has "Check authorization on Authentication"
+# enabled and only the allowed user holds a role grant. Do not publish ports.
+#
+# Coolify magic variables:
+#   SERVICE_PASSWORD_POSTGRES   generated once, shared by every service below
+#   SERVICE_FQDN_GATEKEEPER_4180 routes the public domain to oauth2-proxy
+#   ${VAR:?}                    required; deployment is blocked until set in the UI
+
+x-dagster-postgres-env: &dagster-postgres-env
+  DAGSTER_POSTGRES_USER: dagster
+  DAGSTER_POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}
+  DAGSTER_POSTGRES_HOST: postgres
+  DAGSTER_POSTGRES_DB: dagster
+
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dagster
+      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}
+      POSTGRES_DB: dagster
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dagster -d dagster"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  user_code:
+    image: ghcr.io/gitvex/hockey-pipelines:${PIPELINES_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      # Needed here too: with DefaultRunLauncher, runs execute in this container and
+      # resolve the env: lookups of dagster.yaml locally.
+      <<: *dagster-postgres-env
+      # Pipeline secrets go here as Coolify variables.
+      HOCKEYDATA_API_KEY: ${HOCKEYDATA_API_KEY:?}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  webserver:
+    build: .
+    entrypoint: ["dagster-webserver", "-h", "0.0.0.0", "-p", "3000", "-w", "workspace.yaml"]
+    restart: unless-stopped
+    environment:
+      <<: *dagster-postgres-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      user_code:
+        condition: service_healthy
+
+  daemon:
+    build: .
+    entrypoint: ["dagster-daemon", "run"]
+    restart: unless-stopped
+    environment:
+      <<: *dagster-postgres-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      user_code:
+        condition: service_started
+
+  gatekeeper:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.6
+    restart: unless-stopped
+    environment:
+      SERVICE_FQDN_GATEKEEPER_4180: ""
+      OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4180
+      OAUTH2_PROXY_UPSTREAMS: http://webserver:3000
+      OAUTH2_PROXY_REVERSE_PROXY: "true"
+      OAUTH2_PROXY_PROVIDER: oidc
+      OAUTH2_PROXY_PROVIDER_DISPLAY_NAME: ZITADEL
+      OAUTH2_PROXY_OIDC_ISSUER_URL: ${ZITADEL_ISSUER_URL:?}
+      OAUTH2_PROXY_CLIENT_ID: ${ZITADEL_CLIENT_ID:?}
+      OAUTH2_PROXY_CLIENT_SECRET: ${ZITADEL_CLIENT_SECRET:?}
+      OAUTH2_PROXY_CODE_CHALLENGE_METHOD: S256
+      OAUTH2_PROXY_SCOPE: openid profile email
+      # DAGSTER_URL = https://<your dagster domain>; the result must match the redirect URI in ZITADEL.
+      OAUTH2_PROXY_REDIRECT_URL: ${DAGSTER_URL:?}/oauth2/callback
+      # Access control happens in ZITADEL (project role check); accept any email it lets through.
+      OAUTH2_PROXY_EMAIL_DOMAINS: "*"
+      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
+      OAUTH2_PROXY_COOKIE_SECRET: ${SERVICE_PASSWORD_COOKIE}  # 32 random chars = AES-256 key
+      OAUTH2_PROXY_COOKIE_SECURE: "true"
+      OAUTH2_PROXY_COOKIE_EXPIRE: 24h
+    depends_on:
+      - webserver
+
+volumes:
+  pgdata:
