@@ -2,7 +2,7 @@
 #
 # Deploy as: Coolify -> Project -> + New Resource -> Git-based application with the
 # "Docker Compose" build pack, base directory /dagster. All services share one Compose
-# resource, so they reach each other by service name (postgres, user_code).
+# resource, so they reach each other by service name (dagster-db, user_code).
 #
 # User code is NOT built here: the hockey-pipelines repo pushes
 # ghcr.io/gitvex/hockey-pipelines to GHCR via GitHub Actions. That image must start
@@ -24,13 +24,17 @@
 x-dagster-postgres-env: &dagster-postgres-env
   DAGSTER_POSTGRES_USER: dagster
   DAGSTER_POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}
-  DAGSTER_POSTGRES_HOST: postgres
+  DAGSTER_POSTGRES_HOST: dagster-db
   DAGSTER_POSTGRES_DB: dagster
 
 services:
-  postgres:
+  dagster-db:
     image: postgres:17
     restart: unless-stopped
+    # Listen on 6442 instead of the default 5432 (also set in dagster.yaml).
+    command: ["postgres", "-p", "6442"]
+    expose:
+      - "6442"
     environment:
       POSTGRES_USER: dagster
       POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}
@@ -38,7 +42,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dagster -d dagster"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 6442 -U dagster -d dagster"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -59,7 +63,7 @@ services:
       retries: 5
       start_period: 30s
     depends_on:
-      postgres:
+      dagster-db:
         condition: service_healthy
 
   webserver:
@@ -76,7 +80,7 @@ services:
       retries: 5
       start_period: 30s
     depends_on:
-      postgres:
+      dagster-db:
         condition: service_healthy
       user_code:
         condition: service_healthy
@@ -95,7 +99,7 @@ services:
       retries: 3
       start_period: 60s
     depends_on:
-      postgres:
+      dagster-db:
         condition: service_healthy
       user_code:
         condition: service_healthy
