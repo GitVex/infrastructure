@@ -50,8 +50,7 @@ services:
       # Needed here too: with DefaultRunLauncher, runs execute in this container and
       # resolve the env: lookups of dagster.yaml locally.
       <<: *dagster-postgres-env
-      # Pipeline secrets go here as Coolify variables.
-      HOCKEYDATA_API_KEY: ${HOCKEYDATA_API_KEY:?}
+      # Pipeline secrets go here as Coolify variables, e.g. API_KEY: ${API_KEY:?}
     depends_on:
       postgres:
         condition: service_healthy
