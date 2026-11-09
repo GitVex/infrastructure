@@ -82,6 +82,8 @@ services:
   gatekeeper:
     image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.6
     restart: unless-stopped
+    expose:
+      - "4180"
     environment:
       SERVICE_FQDN_GATEKEEPER_4180: ""
       OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4180
