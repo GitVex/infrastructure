@@ -47,25 +47,6 @@ services:
       timeout: 5s
       retries: 5
 
-  user_code:
-    image: ghcr.io/gitvex/hockey-pipelines:${PIPELINES_TAG:-latest}
-    restart: unless-stopped
-    environment:
-      # Needed here too: with DefaultRunLauncher, runs execute in this container and
-      # resolve the env: lookups of dagster.yaml locally.
-      <<: *dagster-postgres-env
-      # Pipeline secrets go here as Coolify variables, e.g. API_KEY: ${API_KEY:?}
-    # Same check as the image's HEALTHCHECK, restated so the whole stack is visible here.
-    healthcheck:
-      test: ["CMD", "dagster", "api", "grpc-health-check", "-p", "4000"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    depends_on:
-      dagster-db:
-        condition: service_healthy
-
   webserver:
     build: .
     entrypoint: ["dagster-webserver", "-h", "0.0.0.0", "-p", "3000", "-w", "workspace.yaml"]
